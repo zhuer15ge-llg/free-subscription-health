@@ -1,0 +1,30 @@
+name: Check subscription nodes
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7,37 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: subscription-health
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Validate checker and converters
+        run: node --test test/*.test.mjs
+      - name: Install verified Mihomo core
+        run: node checker/install-core.mjs
+      - name: Test candidates and publish passing nodes
+        env:
+          SUBSCRIPTION_ORIGIN: ${{ secrets.SUBSCRIPTION_ORIGIN }}
+          SUBSCRIPTION_ADMIN_TOKEN: ${{ secrets.SUBSCRIPTION_ADMIN_TOKEN }}
+        run: node checker/check.mjs

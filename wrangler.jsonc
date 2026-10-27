@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vpngate-subscription-20261027",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "observability": { "enabled": false },
+  "triggers": { "crons": ["*/30 * * * *"] },
+  "kv_namespaces": [
+    { "binding": "STORE", "id": "fccfd7158f074554a25143f5c15fba5f" }
+  ]
+}
