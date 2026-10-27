@@ -101,6 +101,38 @@ test('Trojan password escaping and WebSocket transport are preserved', () => {
   assert.equal(n.country,'SG'); assert.equal(n.proxy.tls,undefined);
 });
 
+test('Trojan WebSocket missing Host uses the checked Mihomo default in every format', () => {
+  const prefix='trojan://secret%3Apass%40word@node.example.com:443?security=tls&type=ws&path=%2Fproxy%3Fx%3Da%252Bb';
+  for(const [extra,expected] of [['&sni=tls.example.com','tls.example.com'],['&peer=peer.example.com','peer.example.com'],['','node.example.com']]) {
+    const n=parse(prefix+extra+'#JP').nodes[0];
+    assert.equal(n.proxy['ws-opts'].headers.Host,expected);
+    assert.equal(n.outbound.transport.headers.Host,expected);
+    assert.equal(JSON.parse(renderFreeKaring([n])).outbounds[0].transport.headers.Host,expected);
+    const uri=Buffer.from(renderUriSubscription([n]),'base64').toString('utf8').trim();
+    assert.equal(new URL(uri).searchParams.get('host'),expected);
+    assert.equal(new URL(uri).searchParams.get('path'),'/proxy?x=a%2Bb');
+    assert.equal(decodeURIComponent(new URL(uri).username),'secret:pass@word');
+    const again=parse(uri).nodes[0];
+    assert.equal(again.id,n.id);assert.deepEqual(again.outbound,n.outbound);
+    assert.equal(parse(prefix+extra+'&host='+expected+'#JP').nodes[0].id,n.id);
+  }
+});
+
+test('Trojan WebSocket preserves explicit Host without changing other transports', () => {
+  const explicit='trojan://secret@node.example.com:443?security=tls&type=ws&sni=tls.example.com&host=ws.example.com&path=%2Fproxy';
+  const n=parse(explicit).nodes[0];
+  assert.equal(n.proxy['ws-opts'].headers.Host,'ws.example.com');
+  assert.equal(n.outbound.transport.headers.Host,'ws.example.com');
+  assert.equal(new URL(n.uri).searchParams.get('host'),'ws.example.com');
+  assert.equal(n.outbound.tls.server_name,'tls.example.com');
+  assert.equal(parse(n.uri).nodes[0].id,n.id);
+  const tcp=parse('trojan://secret@node.example.com:443?security=tls&sni=tls.example.com').nodes[0];
+  assert.equal(tcp.outbound.transport,undefined);assert.equal(new URL(tcp.uri).searchParams.has('host'),false);
+  const other=parse(vless('security=tls&type=ws&sni=tls.example.com&path=%2Fproxy')).nodes[0];
+  assert.equal(other.outbound.transport.headers,undefined);assert.equal(new URL(other.uri).searchParams.has('host'),false);
+  assert.equal(parse(explicit+'&peer=different.example.com').nodes.length,0);
+});
+
 test('Hysteria2 supports alias, authentication and salamander without weakening TLS', () => {
   const n = parse('hy2://user:pass@node.example.com:8443?sni=cert.example.com&obfs=salamander&obfs-password=obfssecret&insecure=0#%E9%A6%99%E6%B8%AF').nodes[0];
   assert.equal(n.protocol,'hysteria2'); assert.equal(n.country,'HK'); assert.equal(n.outbound.password,'user:pass');

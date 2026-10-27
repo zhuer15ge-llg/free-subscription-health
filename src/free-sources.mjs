@@ -17,6 +17,9 @@ export function mergeFreeSources(results, limit = 120) {
     for (const result of results) {
       const node = result.nodes[i];
       if (!node || seen.has(node.id)) continue;
+      // These nodes reset TLS connections in local client checks; keep the
+      // pause scoped to this source/protocol pair until it is revalidated.
+      if (node.sourceId === 'igareck' && node.protocol === 'trojan') continue;
       seen.add(node.id); nodes.push(node);
       if (nodes.length === limit) break;
     }

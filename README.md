@@ -30,6 +30,10 @@ Worker 无法远程删除客户端已缓存的配置。节点可能在两轮检�
 - [OpenProxyList](https://github.com/roosterkid/openproxylist)
 - [Igareck](https://github.com/igareck/vpn-configs-for-russia)
 
+2026-10-27：暂停下发 Igareck 来源的 Trojan 节点，因用户本地实际代理连接反复重置或超时。
+源仍保留，其它协议可参与筛选；其它来源的 Trojan 不受此规则影响。
+Trojan WebSocket 未指定 Host 时显式补入 SNI/peer/服务器名，使 Mihomo、sing-box 和原生 URI 一致。
+
 精确地址见 `src/free-sources.mjs`。仅提取公开 URI，不执行上游脚本，不导入其
 DNS、路由或程序。支持 SS、VMess、VLESS、Trojan、Hysteria2；拒绝不支持的参数、
 关闭证书验证的配置及非公网字面地址。国家名称显示中文，未知位置标为“未标注”。

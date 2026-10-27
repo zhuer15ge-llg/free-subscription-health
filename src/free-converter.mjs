@@ -143,12 +143,20 @@ function parseVlessTrojan(uri, kind) {
   if (u.password) fail('Unexpected password separator');
   if (kind === 'vless') { proxy.uuid = outbound.uuid = identifier(decode(u.username)); }
   else { proxy.password = outbound.password = value(decode(u.username)); if (!proxy.password) fail('Missing password'); }
+  let uriBase;
+  if (kind === 'trojan' && q.type === 'ws') {
+    // Mihomo uses SNI as the default Trojan WS Host; sing-box uses the server.
+    // Make the checked Host explicit in every format before deriving identity.
+    q.host = q.host || q.sni || q.peer || server;
+    u.searchParams.set('host', q.host);
+    uriBase = u.href.split('#')[0];
+  }
   const network = transport(proxy, outbound, q);
   const security = tls(proxy, outbound, q, { defaultSecurity: kind === 'trojan' ? 'tls' : 'none', trojan: kind === 'trojan' });
   if (q.encryption && q.encryption !== 'none') fail('Unsupported VLESS encryption');
   if (q.flow) { if (kind !== 'vless' || q.flow !== 'xtls-rprx-vision' || network !== 'tcp' || security === 'none') fail('Unsupported VLESS flow'); proxy.flow = outbound.flow = q.flow; }
   if (q.packetEncoding) { if (kind !== 'vless' || !['xudp','packetaddr'].includes(q.packetEncoding)) fail('Unsupported packet encoding'); proxy['packet-encoding'] = outbound.packet_encoding = q.packetEncoding; }
-  return { ...result, remark: decode(u.hash.slice(1)) || q.remarks || q.remark || '', protocol: kind };
+  return { ...result, remark: decode(u.hash.slice(1)) || q.remarks || q.remark || '', protocol: kind, uriBase };
 }
 function parseVmess(uri) {
   let data; try { data = JSON.parse(fromBase64(uri.slice(8).split('#')[0])); } catch { fail('Invalid VMess document'); }
@@ -254,7 +262,7 @@ export function parseFreeSubscription(text, { sourceId = 'free', sourceName = 'F
       const name = `${label} ${clean(sourceName, 24)} ${parsed.protocol.toUpperCase()} ${parsed.proxy.server}:${parsed.proxy.port} ${id.slice(-6)}`;
       parsed.proxy.name = name; parsed.outbound.tag = name;
       // VMess stores its label inside the base64 JSON, unlike URL-style formats.
-      const cleanUri = parsed.uriDocument ? 'vmess://' + toBase64(JSON.stringify({ ...parsed.uriDocument, ps: name })) : uri.split('#')[0] + '#' + encodeURIComponent(name);
+      const cleanUri = parsed.uriDocument ? 'vmess://' + toBase64(JSON.stringify({ ...parsed.uriDocument, ps: name })) : (parsed.uriBase ?? uri.split('#')[0]) + '#' + encodeURIComponent(name);
       nodes.push({ id, name, country, countryLong: country === 'ZZ' ? 'Unspecified' : countryNames(country).en, ip: parsed.proxy.server, protocol: parsed.protocol, sourceId: clean(sourceId, 64), sourceName: clean(sourceName, 80), proxy: parsed.proxy, outbound: parsed.outbound, uri: cleanUri });
     } catch (error) { if (warnings.length < 100) warnings.push(`Node ${sourceCount}: ${error instanceof InvalidNode ? error.message : 'Invalid node data'}`); }
   }
