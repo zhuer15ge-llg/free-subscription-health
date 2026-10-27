@@ -6,7 +6,7 @@ Cloudflare Workers 负责收集、转换和提供订阅。GitHub Actions 独立�
 ## 检测和发布
 
 1. 七个公开源每 30 分钟更新，严格解析、跨源去重和轮流取样，每轮最多 120 个候选。
-2. GitHub Actions 计划在每小时第 7、37 分钟运行，也可手动触发。
+2. GitHub Actions 计划在每小时第 17、47 分钟运行，也可手动触发。
 3. 使用固定版本且校验 SHA-256 的 Mihomo，每个节点独立绑定临时 loopback 监听器。
    不开 TUN，不修改系统代理，没有 DIRECT 回退。
 4. 每个节点必须通过 `https://1.1.1.1/cdn-cgi/trace` 和
