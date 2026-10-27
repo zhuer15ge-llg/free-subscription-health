@@ -143,20 +143,24 @@ function parseVlessTrojan(uri, kind) {
   if (u.password) fail('Unexpected password separator');
   if (kind === 'vless') { proxy.uuid = outbound.uuid = identifier(decode(u.username)); }
   else { proxy.password = outbound.password = value(decode(u.username)); if (!proxy.password) fail('Missing password'); }
-  let uriBase;
   if (kind === 'trojan' && q.type === 'ws') {
     // Mihomo uses SNI as the default Trojan WS Host; sing-box uses the server.
     // Make the checked Host explicit in every format before deriving identity.
     q.host = q.host || q.sni || q.peer || server;
     u.searchParams.set('host', q.host);
-    uriBase = u.href.split('#')[0];
   }
   const network = transport(proxy, outbound, q);
   const security = tls(proxy, outbound, q, { defaultSecurity: kind === 'trojan' ? 'tls' : 'none', trojan: kind === 'trojan' });
+  // Native importers do not consistently supply the defaults used above.
+  // In particular, sing-box Reality cannot start without an enabled uTLS fingerprint.
+  if (security === 'reality' && !q.fp) u.searchParams.set('fp', proxy['client-fingerprint']);
+  if (kind === 'trojan' && !q.security) u.searchParams.set('security', security);
+  if (security !== 'none' && !q.sni && q.peer) u.searchParams.set('sni', q.peer);
+  if (!u.port) u.port = String(p);
   if (q.encryption && q.encryption !== 'none') fail('Unsupported VLESS encryption');
   if (q.flow) { if (kind !== 'vless' || q.flow !== 'xtls-rprx-vision' || network !== 'tcp' || security === 'none') fail('Unsupported VLESS flow'); proxy.flow = outbound.flow = q.flow; }
   if (q.packetEncoding) { if (kind !== 'vless' || !['xudp','packetaddr'].includes(q.packetEncoding)) fail('Unsupported packet encoding'); proxy['packet-encoding'] = outbound.packet_encoding = q.packetEncoding; }
-  return { ...result, remark: decode(u.hash.slice(1)) || q.remarks || q.remark || '', protocol: kind, uriBase };
+  return { ...result, remark: decode(u.hash.slice(1)) || q.remarks || q.remark || '', protocol: kind, uriBase: u.href.split('#')[0] };
 }
 function parseVmess(uri) {
   let data; try { data = JSON.parse(fromBase64(uri.slice(8).split('#')[0])); } catch { fail('Invalid VMess document'); }
@@ -212,9 +216,11 @@ function parseHysteria2(uri) {
   if (!password) fail('Missing Hysteria2 password');
   proxy.password = outbound.password = password;
   tls(proxy, outbound, { ...q, security: 'tls' }, { trojan: true });
+  if (!q.sni && q.peer) u.searchParams.set('sni', q.peer);
+  if (!u.port) u.port = String(proxy.port);
   if (q.obfs) { if (q.obfs !== 'salamander' || !q['obfs-password']) fail('Unsupported Hysteria2 obfuscation'); proxy.obfs = q.obfs; proxy['obfs-password'] = q['obfs-password']; outbound.obfs = { type: q.obfs, password: q['obfs-password'] }; }
   else if (q['obfs-password']) fail('Obfuscation password without obfuscation');
-  return { ...result, remark: decode(u.hash.slice(1)), protocol: 'hysteria2' };
+  return { ...result, remark: decode(u.hash.slice(1)), protocol: 'hysteria2', uriBase: u.href.split('#')[0] };
 }
 function stableId(text) {
   let a = 2166136261, b = 2246822519;

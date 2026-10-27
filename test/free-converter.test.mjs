@@ -20,6 +20,35 @@ test('VLESS Reality preserves keys, vision, SNI, fingerprint and packet encoding
   assert.equal(n.outbound.tag, n.name); assert.equal(n.sourceId, 'public-test');
 });
 
+test('native Reality links explicitly preserve the required default uTLS fingerprint', () => {
+  const base=`security=reality&type=tcp&sni=www.example.com&pbk=${PK}&sid=ab12`;
+  for(const suffix of ['', '&fp=']) {
+    const n=parse(vless(base+suffix)).nodes[0];
+    const shared=Buffer.from(renderUriSubscription([n]),'base64').toString('utf8').trim();
+    assert.equal(new URL(shared).searchParams.get('fp'),'chrome');
+    assert.equal(n.proxy['client-fingerprint'],'chrome');assert.deepEqual(n.outbound.tls.utls,{enabled:true,fingerprint:'chrome'});
+    assert.equal(n.id,parse(vless(base+'&fp=chrome')).nodes[0].id);
+    assert.equal(parse(shared).nodes[0].id,n.id);
+  }
+  const explicit=parse(vless(base+'&fp=firefox')).nodes[0];
+  assert.equal(new URL(explicit.uri).searchParams.get('fp'),'firefox');
+  assert.equal(explicit.outbound.tls.utls.fingerprint,'firefox');
+});
+
+test('native links expose implicit TLS, port and accepted peer alias without changing identity', () => {
+  for(const original of [
+    `vless://${UUID}@node.example.com?security=tls&peer=tls.example.com`,
+    'trojan://secret%3Apass@node.example.com?peer=tls.example.com',
+    'hy2://secret%3Apass@node.example.com?peer=tls.example.com',
+  ]) {
+    const n=parse(original).nodes[0],u=new URL(n.uri);
+    assert.equal(u.port,'443');assert.equal(u.searchParams.get('sni'),'tls.example.com');
+    assert.equal(n.outbound.tls.server_name,'tls.example.com');
+    if(n.protocol==='trojan')assert.equal(u.searchParams.get('security'),'tls');
+    assert.equal(parse(n.uri).nodes[0].id,n.id);
+  }
+});
+
 test('VLESS WebSocket TLS and early data map to both clients', () => {
   const n = parse(vless('security=tls&type=ws&sni=tls.example.com&host=ws.example.com&path=%2Fsocket%3Fed%3D2048&alpn=h2,http%2F1.1')).nodes[0];
   assert.deepEqual(n.proxy['ws-opts'], { path: '/socket', headers: { Host: 'ws.example.com' }, 'max-early-data': 2048, 'early-data-header-name': 'Sec-WebSocket-Protocol' });
