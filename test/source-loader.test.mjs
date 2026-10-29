@@ -9,6 +9,8 @@ test('daily articles use the newest dated URL and ignore sidebar order, fragment
   const html = `<a href='/free-node/2026-10-27-node.htm'>old</a><a href='/free-node/2026-10-29-node.htm#x'>new</a><a href='https://evil.example/free-node/2029-10-29-node.htm'>ad</a><script>"https://www.freeclashnode.com/free-node/2030-10-29-node.htm"</script>`;
   assert.deepEqual(discoverArticles(source('freeclashnode'), html), ['https://www.freeclashnode.com/free-node/2026-10-29-node.htm','https://www.freeclashnode.com/free-node/2026-10-27-node.htm']);
   assert.deepEqual(discoverArticles(source('mibei'), '<a href="/780.html">old</a><a href="/784.html">new</a>'), ['https://www.mibei77.com/784.html','https://www.mibei77.com/780.html']);
+  assert.deepEqual(discoverArticles(source('freeclashnode'), '<a href="/free-node/2026-10-31-node.htm">old</a><a href="/free-node/2026-11-1-node.htm">new</a>'), ['https://www.freeclashnode.com/free-node/2026-11-1-node.htm','https://www.freeclashnode.com/free-node/2026-10-31-node.htm']);
+  assert.deepEqual(discoverArticles(source('cfmem'), '<a href="/2026/10/20261028-node.html">old</a><a href="/2026/10/20261029-node.html">new</a>'), ['https://www.cfmem.com/2026/10/20261029-node.html','https://www.cfmem.com/2026/10/20261028-node.html']);
 });
 
 test('all native feeds in daily articles are selected; YAML, advertising, credentials and foreign fetch destinations are excluded', () => {

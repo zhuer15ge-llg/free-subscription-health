@@ -41,8 +41,9 @@ function links(html, base) {
   return [...new Map(found.map(u => [u.href, u])).values()];
 }
 function articleOrder(url) {
-  const d = url.pathname.match(/(20\d{2})[-/]?(\d{2})[-/]?(\d{2})/);
-  if (d) return Number(d[1] + d[2] + d[3]);
+  const d = url.pathname.match(/(20\d{2})(\d{2})(\d{2})(?!\d)/)
+    || url.pathname.match(/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})(?!\d)/);
+  if (d && +d[2] >= 1 && +d[2] <= 12 && +d[3] >= 1 && +d[3] <= 31) return Number(d[1] + d[2].padStart(2, '0') + d[3].padStart(2, '0'));
   return Number(url.pathname.match(/^\/(\d+)\.html$/)?.[1] || 0);
 }
 export function discoverArticles(source, html) {
