@@ -257,6 +257,25 @@ test('one failed source does not prevent valid sources replacing the generation'
   assert.equal(JSON.parse(env.values.get('last-attempt')).success, true);
 });
 
+test('failed daily fetches can use authenticated checker URI supplements without publishing unchecked data', async () => {
+  const env=environment({snapshot:current});
+  const result=await refresh(env,async url=>url===SOURCES[0].url?new Response(publicNode):new Response('',{status:503}),[{sourceId:'freev2',subscription:secondNode,articleUrl:'https://b.freev2.net/'}]);
+  assert.equal(result.candidateCount,2);
+  assert.equal(result.sourceStatus.find(s=>s.id==='freev2').fetchedBy,'github-actions');
+  assert.equal(env.values.get('snapshot'),current);
+  assert.equal(JSON.parse(env.values.get('candidates')).nodes.find(n=>n.sourceId==='freev2').protocol,'trojan');
+});
+
+test('supplemental source ingestion is admin-only and rejects proxy objects and unknown request fields', async () => {
+  const env=environment({snapshot:current});
+  for (const input of [{supplements:[{sourceId:'freev2',proxy:{type:'direct'}}]},{url:'https://evil.example/'}]) {
+    const result=await worker.fetch(new Request('https://example.test/admin/refresh',{method:'POST',headers:auth,body:JSON.stringify(input)}),env);
+    assert.equal(result.status,400);
+  }
+  const unauth=await worker.fetch(new Request('https://example.test/admin/refresh',{method:'POST',body:'{}'}),env);
+  assert.equal(unauth.status,401);assert.equal(env.values.get('snapshot'),current);
+});
+
 test('failed atomic snapshot writes retain the complete previous generation', async () => {
   const env = environment({ snapshot: current }, 'snapshot');
   const candidate=await prepare(env);

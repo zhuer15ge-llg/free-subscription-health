@@ -1,4 +1,5 @@
 import { parseFreeSubscription } from './free-converter.mjs';
+import { SOURCES } from './free-sources.mjs';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const MAX_FEEDS = 6;
@@ -94,6 +95,25 @@ export async function readSourceText(response, maxBytes = MAX_BYTES) {
   const bytes = new Uint8Array(size); let offset = 0;
   for (const part of parts) { bytes.set(part, offset); offset += part.byteLength; }
   return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+}
+
+/** Authenticated checker supplies native URIs only, never proxy objects/routes. */
+export function parseSourceSupplements(input = []) {
+  if (!Array.isArray(input) || input.length > SOURCES.filter(s => s.kind).length) throw new Error('Invalid source supplements');
+  const parsed = new Map();
+  for (const item of input) {
+    const source = SOURCES.find(s => s.kind && s.id === item?.sourceId);
+    if (!source || parsed.has(source.id) || Object.keys(item).some(k => !['sourceId','subscription','articleUrl','feedCount','fetchedFeedCount'].includes(k))) throw new Error('Invalid source supplements');
+    if (typeof item.subscription !== 'string' || item.subscription.length > 1024 * 1024) throw new Error('Invalid supplemental subscription');
+    const result = parseFreeSubscription(item.subscription, { sourceId: source.id, sourceName: source.name, limit: MAX_DAILY_NODES });
+    if (!result.nodes.length) throw new Error('No supported supplemental nodes');
+    const article = safeUrl(item.articleUrl || source.url, source.url);
+    if (!article || article.origin !== new URL(source.url).origin || article.search) throw new Error('Invalid supplemental article');
+    for (const key of ['feedCount','fetchedFeedCount']) if (item[key] !== undefined && (!Number.isInteger(item[key]) || item[key] < 1 || item[key] > MAX_FEEDS)) throw new Error('Invalid supplemental feed count');
+    if (item.fetchedFeedCount > item.feedCount) throw new Error('Invalid supplemental feed count');
+    parsed.set(source.id, { ...result, source, articleUrl: article.href, feedCount: item.feedCount ?? 1, fetchedFeedCount: item.fetchedFeedCount ?? 1, fetchedBy: 'github-actions' });
+  }
+  return parsed;
 }
 
 /** Fixed publisher -> latest post -> all native URI feeds in that post. */

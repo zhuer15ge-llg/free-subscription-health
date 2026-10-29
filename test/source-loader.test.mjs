@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SOURCES } from '../src/free-sources.mjs';
-import { decodeHtml, discoverArticles, discoverFeeds, readSourceText, loadFreeSource } from '../src/source-loader.mjs';
+import { decodeHtml, discoverArticles, discoverFeeds, readSourceText, loadFreeSource, parseSourceSupplements } from '../src/source-loader.mjs';
 const source = id => SOURCES.find(s => s.id === id);
 const uri = host => `vless://11111111-2222-4333-8444-555555555555@${host}:443?security=tls&sni=${host}#JP`;
 
@@ -61,4 +61,11 @@ test('a failed latest article can use the previous post without following arbitr
 test('bounded readers cancel oversized advertised and streamed source bodies', async () => {
   await assert.rejects(readSourceText(new Response('oversized',{headers:{'Content-Length':'999'}}),4),/size limit/);
   await assert.rejects(readSourceText(new Response('oversized'),4),/size limit/);
+});
+
+test('checker supplements accept only known daily publishers and reparse native URIs', () => {
+  const good={sourceId:'freev2',subscription:btoa(uri('supplement.example.com')),articleUrl:'https://b.freev2.net/',feedCount:1,fetchedFeedCount:1};
+  const parsed=parseSourceSupplements([good]).get('freev2');
+  assert.equal(parsed.nodes.length,1);assert.equal(parsed.nodes[0].sourceId,'freev2');assert.equal(parsed.fetchedBy,'github-actions');
+  for (const input of [[{...good,sourceId:'arbitrary'}],[good,good],[{...good,articleUrl:'https://evil.example/'}],[{...good,proxy:{type:'direct'}}],[{...good,subscription:'not node data'}],[{...good,feedCount:7}]]) assert.throws(()=>parseSourceSupplements(input));
 });

@@ -6,7 +6,9 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { MAX_CANDIDATES } from '../src/free-sources.mjs';
+import { MAX_CANDIDATES, SOURCES } from '../src/free-sources.mjs';
+import { loadFreeSource } from '../src/source-loader.mjs';
+import { renderUriSubscription } from '../src/free-converter.mjs';
 
 export const TARGETS = ['https://1.1.1.1/cdn-cgi/trace', 'https://www.google.com/generate_204'];
 const TYPES = new Set(['ss', 'vmess', 'vless', 'trojan', 'hysteria2']);
@@ -211,7 +213,15 @@ async function main() {
     }
     return r.json();
   };
-  const generation = await request('/admin/refresh', {});
+  // Some public feeds reject Cloudflare egress. Independently read the same
+  // fixed daily publishers here; the Worker re-parses URIs before accepting a
+  // supplement and still requires a full HTTPS check before publication.
+  const daily = await Promise.allSettled(SOURCES.filter(s => s.kind).map(s => loadFreeSource(s)));
+  const supplements = daily.filter(r => r.status === 'fulfilled').map(({value:r}) => ({
+    sourceId: r.source.id, subscription: renderUriSubscription(r.nodes),
+    articleUrl: r.articleUrl, feedCount: r.feedCount, fetchedFeedCount: r.fetchedFeedCount,
+  }));
+  const generation = await request('/admin/refresh', { supplements });
   const candidate = await fetchCandidateGeneration(request, generation.generationId);
   const report = await checkCandidates(candidate, { corePath: process.env.MIHOMO_PATH, onProgress: p => console.log(JSON.stringify(p)) });
   const result = await request('/admin/check-results', report);

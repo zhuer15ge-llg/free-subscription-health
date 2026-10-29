@@ -1,5 +1,5 @@
 import { SOURCES, mergeFreeSources, MAX_CANDIDATES } from './free-sources.mjs';
-import { loadFreeSource } from './source-loader.mjs';
+import { loadFreeSource, parseSourceSupplements } from './source-loader.mjs';
 import { renderLoginPage, renderDashboard } from './ui.mjs';
 import { HealthReportError, candidateSummary, makeHealthySnapshot, healthView, publicStatus } from './health-snapshot.mjs';
 
@@ -105,8 +105,9 @@ async function readLimitedText(upstream, maxBytes = MAX_BYTES) {
   return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
 }
 
-export async function refresh(env, fetcher = fetch) {
+export async function refresh(env, fetcher = fetch, supplementInput = []) {
   const startedAt = new Date().toISOString();
+  const supplements = parseSourceSupplements(supplementInput);
   try {
     // Bound discovery requests as well as response sizes; only fixed adapters
     // can select fetch destinations. Leave room for KV operations in this run.
@@ -115,13 +116,20 @@ export async function refresh(env, fetcher = fetch) {
       if (++requests > 45) throw new Error('Source request budget exhausted');
       return fetcher(...args);
     };
-    const fetched = await Promise.allSettled(SOURCES.map(source => loadFreeSource(source, boundedFetch)));
+    const fetched = await Promise.allSettled(SOURCES.map(async source => {
+      try { return await loadFreeSource(source, boundedFetch); }
+      catch (error) {
+        if (supplements.has(source.id)) return supplements.get(source.id);
+        throw error;
+      }
+    }));
     const successful = fetched.filter(r => r.status === 'fulfilled').map(r => r.value);
     const sources = fetched.map((r, i) => ({
       ...SOURCES[i], success: r.status === 'fulfilled',
       nodeCount: r.status === 'fulfilled' ? r.value.nodes.length : 0,
       sourceCount: r.status === 'fulfilled' ? r.value.sourceCount : 0,
       ...(r.status === 'fulfilled' && r.value.articleUrl ? { articleUrl: r.value.articleUrl, feedCount: r.value.feedCount, fetchedFeedCount: r.value.fetchedFeedCount } : {}),
+      ...(r.status === 'fulfilled' && r.value.fetchedBy ? { fetchedBy: r.value.fetchedBy } : {}),
       ...(r.status === 'rejected' ? { error: /^HTTP \d+$/.test(r.reason?.message) ? r.reason.message : 'Source unavailable or invalid' } : {}),
     }));
     if (!successful.length) throw new Error('All free sources unavailable or invalid; previous snapshot retained');
@@ -201,7 +209,15 @@ export default {
     if (url.pathname === '/admin/refresh') {
       if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
       if (!await authorized(request, env.ADMIN_TOKEN, false)) return json({ error: 'Unauthorized' }, 401);
-      try { return json(await refresh(env)); }
+      let supplements;
+      try {
+        const text = request.body ? await readLimitedText(request) : '';
+        const input = text.trim() ? JSON.parse(text) : {};
+        if (!input || Array.isArray(input) || typeof input !== 'object' || Object.keys(input).some(k => k !== 'supplements')) throw new Error('Invalid refresh request');
+        supplements = input.supplements ?? [];
+        parseSourceSupplements(supplements);
+      } catch { return json({ error: 'Invalid source supplements' }, 400); }
+      try { return json(await refresh(env, fetch, supplements)); }
       catch (error) { return json({ error: error.message, previousSnapshotRetained: true }, 502); }
     }
     if (url.pathname === '/admin/candidates') {
