@@ -2,6 +2,7 @@ import { parseFreeSubscription, renderFreeKaring, renderUriSubscription } from '
 import { renderFreeMihomo } from './free-config.mjs';
 import { MAX_CANDIDATES } from './free-sources.mjs';
 import { isBlockedNode } from './block-policy.mjs';
+import { aliasesAreCurrent, renameSubscriptionNodes } from './node-aliases.mjs';
 
 export const HEALTH_TTL_MS = 2 * 60 * 60 * 1000;
 export const MAX_REPORT_AGE_MS = 30 * 60 * 1000;
@@ -88,6 +89,7 @@ export function makeHealthySnapshot(report, candidate, previous, now = Date.now(
 }
 
 function renderSnapshot(nodes, status) {
+  nodes = renameSubscriptionNodes(nodes);
   const health = status.health;
   return {
     health, status,
@@ -100,7 +102,7 @@ function renderSnapshot(nodes, status) {
   };
 }
 
-/** Apply a new denylist to already checked cached nodes without claiming a new test. */
+/** Apply current labels and denylist to cached nodes without claiming a new test. */
 export function applySnapshotBlockPolicy(current) {
   if (!current?.health || !Array.isArray(current.nodes?.nodes) || !current.karing || !current.uris) return current;
   const metadata = current.nodes.nodes;
@@ -108,7 +110,8 @@ export function applySnapshotBlockPolicy(current) {
   let outbounds;
   try { outbounds = JSON.parse(current.karing).outbounds; } catch { return null; }
   if (!Array.isArray(outbounds)) return null;
-  if (!outbounds.some(n => isBlockedNode({ ...tags.get(n.tag), outbound:n }))) return current;
+  const needsAliases = !aliasesAreCurrent(metadata);
+  if (!needsAliases && !outbounds.some(n => isBlockedNode({ ...tags.get(n.tag), outbound:n }))) return current;
   let nodes, lines;
   try {
     nodes = parseFreeSubscription(current.uris, { limit:MAX_CANDIDATES }).nodes;
@@ -121,7 +124,7 @@ export function applySnapshotBlockPolicy(current) {
     proxy:{ ...n.proxy,name:metadata[i].name }, outbound:{ ...n.outbound,tag:metadata[i].name }, uri:lines[i],
   })).filter(n=>!isBlockedNode(n));
   const removed = nodes.length - allowed.length;
-  if (!removed) return current;
+  if (!removed && !needsAliases) return current;
   const health = { ...current.health, passedCount:allowed.length, failedCount:current.health.checkedCount-allowed.length,
     policyBlockedCount:(current.health.policyBlockedCount||0)+removed };
   const countries={}, protocols={};

@@ -5,6 +5,7 @@ import { SOURCES, mergeFreeSources } from '../src/free-sources.mjs';
 import { buildFreeMihomo, renderFreeMihomo, GROUP_NAME, AUTO_NAME, TEST_URL } from '../src/free-config.mjs';
 import { parseFreeSubscription, renderFreeKaring, renderUriSubscription } from '../src/free-converter.mjs';
 import { BLOCKED_ENDPOINTS, isBlockedNode } from '../src/block-policy.mjs';
+import { renameSubscriptionNodes } from '../src/node-aliases.mjs';
 import { makeHealthySnapshot, CHECK_TARGETS, HEALTH_TTL_MS } from '../src/health-snapshot.mjs';
 
 function environment(initial = {}, failKey = null) {
@@ -338,13 +339,28 @@ test('a complete health report publishes only passed candidates in every format'
   assert.equal(Date.parse(published.health.expiresAt)-Date.parse(published.health.checkedAt),HEALTH_TTL_MS);
   const snap=JSON.parse(env.values.get('snapshot'));
   assert.deepEqual(snap.nodes.nodes.map(n=>n.id),[allowed.id]);assert.equal(snap.nodes.nodes[0].latencyMs,123);
-  for(const field of ['mihomo','provider']) {assert.ok(snap[field].includes(allowed.name));assert.ok(!snap[field].includes(blocked.name));}
-  assert.deepEqual(JSON.parse(snap.karing).outbounds.map(n=>n.tag),[allowed.name]);
-  assert.equal(atob(snap.uris.trim()).trim(),allowed.uri);
+  const renamed=renameSubscriptionNodes([allowed])[0];
+  for(const field of ['mihomo','provider']) {assert.ok(snap[field].includes(renamed.name));assert.ok(!snap[field].includes(blocked.proxy.server));}
+  assert.deepEqual(JSON.parse(snap.karing).outbounds.map(n=>n.tag),[renamed.name]);
+  assert.equal(atob(snap.uris.trim()).trim(),renamed.uri);
   for(const route of subscriptionRoutes) assert.equal((await worker.fetch(subRequest(route),env)).status,200,route);
   const status=await (await worker.fetch(subRequest('/api/status'),env)).json();
   assert.equal(status.available,true);assert.equal(status.clientConnectivityTested,true);assert.equal(status.nodeCount,1);
   assert.equal(status.candidateStatus.candidateCount,2);
+});
+
+test('legacy cached labels are renamed even when no node is blocked and check timestamps remain unchanged', async () => {
+  const legacy=JSON.parse(current), node=seedCandidate.nodes[0];
+  legacy.nodes.nodes[0].name=node.name;
+  legacy.uris=renderUriSubscription([node]);legacy.karing=renderFreeKaring([node]);
+  legacy.mihomo=renderFreeMihomo([node]);legacy.provider=renderFreeMihomo([node],{providerOnly:true});
+  const env=environment({snapshot:JSON.stringify(legacy)});
+  const index=await (await worker.fetch(subRequest('/api/nodes'),env)).json();
+  assert.equal(index.nodes[0].name,'日本阿高节点01');assert.equal(index.nodes[0].id,node.id);
+  const sb=await (await worker.fetch(subRequest('/sub/karing.json'),env)).json();assert.equal(sb.outbounds[0].tag,index.nodes[0].name);
+  const native=await (await worker.fetch(subRequest('/sub/v2rayn.txt'),env)).text();assert.equal(parseFreeSubscription(native).nodes[0].id,node.id);
+  const status=await (await worker.fetch(subRequest('/api/status'),env)).json();
+  assert.equal(status.health.checkedAt,legacy.health.checkedAt);assert.equal(status.health.expiresAt,legacy.health.expiresAt);
 });
 
 test('an in-flight old generation cannot republish blocked endpoints even when its checks pass', async () => {

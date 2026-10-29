@@ -57,6 +57,11 @@ Trojan WebSocket 未指定 Host 时显式补入 SNI/peer/服务器名，使 Miho
 发布已屏蔽端点。`health.policyBlockedCount` 记录政策排除数量，包含在拒绝计数中。
 名单位于 `src/block-policy.mjs`，只含端点和 ID，不含节点密码或完整 URI。
 
+节点显示名统一为“国家＋阿高节点＋序号”，例如 `日本阿高节点01`、`美国阿高节点01`。
+同一国家按当前订阅顺序编号，未知地区显示 `未标注阿高节点01`；名称不再包含来源、
+协议或服务器地址。Mihomo 名称、sing-box tag 和原生 URI 的备注（含 VMess ps）同步
+改名，连接参数、节点 ID 和来源元数据保留。已有缓存订阅也在读取时应用新名称。
+
 精确地址见 `src/free-sources.mjs`。仅提取公开 URI，不执行上游脚本，不导入其
 DNS、路由或程序。支持 SS、VMess、VLESS、Trojan、Hysteria2；拒绝不支持的参数、
 关闭证书验证的配置及非公网字面地址。国家名称显示中文，未知位置标为“未标注”。
