@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { MAX_CANDIDATES } from '../src/free-sources.mjs';
 
 export const TARGETS = ['https://1.1.1.1/cdn-cgi/trace', 'https://www.google.com/generate_204'];
 const TYPES = new Set(['ss', 'vmess', 'vless', 'trojan', 'hysteria2']);
@@ -77,7 +78,7 @@ async function stopChild(child) {
 }
 
 export function checkerConfig(nodes, ports, controller, secret) {
-  if (!nodes.length || nodes.length > 120 || nodes.length !== ports.length) throw new Error('Invalid candidate count');
+  if (!nodes.length || nodes.length > MAX_CANDIDATES || nodes.length !== ports.length) throw new Error('Invalid candidate count');
   if (new Set(nodes.map(n => n.id)).size !== nodes.length || new Set(nodes.map(n => n.name)).size !== nodes.length) throw new Error('Duplicate candidate');
   for (const n of nodes) {
     if (!/^free-[a-f0-9]{16}$/.test(n.id) || !TYPES.has(n.proxy?.type) || n.proxy.name !== n.name || n.proxy['dialer-proxy']) throw new Error('Invalid candidate proxy');
@@ -95,13 +96,13 @@ export function checkerConfig(nodes, ports, controller, secret) {
   };
 }
 
-export async function checkCandidates(candidate, { corePath, coreArgs = [], checker = 'github-actions', concurrency = 8, onProgress = () => {} }) {
+export async function checkCandidates(candidate, { corePath, coreArgs = [], checker = 'github-actions', concurrency = 16, onProgress = () => {} }) {
   if (!corePath) throw new Error('MIHOMO_PATH is required');
   if (!Array.isArray(coreArgs) || coreArgs.some(value => typeof value !== 'string')) throw new Error('Invalid Mihomo arguments');
   if (!['github-actions', 'local-windows'].includes(checker)) throw new Error('Invalid checker identity');
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32) throw new Error('Invalid checker concurrency');
   const nodes = candidate.nodes;
-  if (!Array.isArray(nodes) || !nodes.length || nodes.length > 120) throw new Error('Invalid candidate count');
+  if (!Array.isArray(nodes) || !nodes.length || nodes.length > MAX_CANDIDATES) throw new Error('Invalid candidate count');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'free-node-check-'));
   let core; const activeChildren = new Set(); const startedAt = new Date().toISOString();
   try {

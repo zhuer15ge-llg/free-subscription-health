@@ -1,5 +1,6 @@
 import { renderFreeKaring, renderUriSubscription } from './free-converter.mjs';
 import { renderFreeMihomo } from './free-config.mjs';
+import { MAX_CANDIDATES } from './free-sources.mjs';
 
 export const HEALTH_TTL_MS = 2 * 60 * 60 * 1000;
 export const MAX_REPORT_AGE_MS = 30 * 60 * 1000;
@@ -44,7 +45,7 @@ export function validateCheckReport(report, candidate, previous, now = Date.now(
   const priorHealth = previous?.health ?? previous?.status?.health;
   if (Number.isFinite(timestamp(priorHealth?.checkedAt)) && finished <= timestamp(priorHealth.checkedAt)) reject('A newer health report has already been published', 409);
   if (Number.isFinite(timestamp(priorHealth?.candidateCreatedAt)) && created < timestamp(priorHealth.candidateCreatedAt)) reject('A newer candidate generation has already been published', 409);
-  if (!Array.isArray(candidate.nodes) || !candidate.nodes.length || candidate.nodes.length > 120) reject('Invalid candidate generation', 409);
+  if (!Array.isArray(candidate.nodes) || !candidate.nodes.length || candidate.nodes.length > MAX_CANDIDATES) reject('Invalid candidate generation', 409);
   if (!Array.isArray(report.results) || report.results.length !== candidate.nodes.length) reject('Health report must cover every candidate exactly once');
   const expected = new Set(candidate.nodes.map(n => n.id)), received = new Set(), passed = new Map();
   if (expected.size !== candidate.nodes.length) reject('Duplicate candidate identity', 409);

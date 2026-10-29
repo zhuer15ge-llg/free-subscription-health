@@ -5,7 +5,10 @@ Cloudflare Workers 负责收集、转换和提供订阅。GitHub Actions 独立�
 
 ## 检测和发布
 
-1. 七个公开源每 30 分钟更新，严格解析、跨源去重和轮流取样，每轮最多 120 个候选。
+1. 十四个公开源每 30 分钟更新，严格解析、跨源去重和轮流取样，每轮最多 1000 个候选。
+   七个日更网站每轮重新读取最新文章或复制按钮中的地址，合并同篇文章的所有 TXT 订阅。
+   最新文章不可用时尝试上一篇；单站故障不影响其它站点。原有源最多取 80 个兼容节点，
+   日更源合并后最多取 500 个，避免一个大型合集占满检测资源。
 2. GitHub Actions 计划在每小时第 17、47 分钟运行，也可手动触发。
 3. 使用固定版本且校验 SHA-256 的 Mihomo，每个节点独立绑定临时 loopback 监听器。
    不开 TUN，不修改系统代理，没有 DIRECT 回退。
@@ -20,7 +23,7 @@ Cloudflare Workers 负责收集、转换和提供订阅。GitHub Actions 独立�
 客户端仍会每五分钟测试自动选择组。需要更新订阅才能取得剔除后的列表；
 Worker 无法远程删除客户端已缓存的配置。节点可能在两轮检测之间失效。
 
-## 七个公开源
+## 十四个公开源
 
 - [Nodes Radar](https://github.com/nodesradar/nodesradar-en)
 - [Au1rxx](https://github.com/Au1rxx/free-vpn-subscriptions)
@@ -29,6 +32,17 @@ Worker 无法远程删除客户端已缓存的配置。节点可能在两轮检�
 - [Eternity](https://github.com/mahdibland/V2RayAggregator)
 - [OpenProxyList](https://github.com/roosterkid/openproxylist)
 - [Igareck](https://github.com/igareck/vpn-configs-for-russia)
+- [米贝分享](https://www.mibei77.com/category/jiedian)：最新文章中的原生 TXT 订阅
+- [HiddifyNext](https://hiddify-next-node.github.io/)：最新文章中的全部 TXT 链接
+- [FreeClashNode](https://www.freeclashnode.com/free-node/)：最新文章中的全部 TXT 链接
+- [大翻墙运动](https://end-gfw.com/#free)：首页公开的通用订阅
+- [V2rayDog](https://v2raydog.com/)：最新每日文章中的 TXT 订阅
+- [长风分享](https://www.cfmem.com/search/label/%E5%85%8D%E8%B4%B9%E8%8A%82%E7%82%B9)：当前免费节点分类的最新文章，提取 Nodebuf 原生 V2Ray 订阅
+- [FreeV2](https://b.freev2.net/)：每日重新读取公开复制按钮，适配地址轮换
+
+`source-loader.mjs` 只允许各站已确认的文章路径和订阅域名，最多读取 45 个响应。
+每个来源整体限时 45 秒，每个响应最多 4 MiB。不执行页面脚本，不跟随任意重定向，
+不抓取广告、赞助服务或上游路由规则。来源更换域名或页面结构时会显示失败并等待维护。
 
 2026-10-27：暂停下发 Igareck 来源的 Trojan 节点，因用户本地实际代理连接反复重置或超时。
 源仍保留，其它协议可参与筛选；其它来源的 Trojan 不受此规则影响。

@@ -1,10 +1,9 @@
-import { parseFreeSubscription } from './free-converter.mjs';
-import { SOURCES, mergeFreeSources } from './free-sources.mjs';
+import { SOURCES, mergeFreeSources, MAX_CANDIDATES } from './free-sources.mjs';
+import { loadFreeSource } from './source-loader.mjs';
 import { renderLoginPage, renderDashboard } from './ui.mjs';
 import { HealthReportError, candidateSummary, makeHealthySnapshot, healthView, publicStatus } from './health-snapshot.mjs';
 
 const MAX_BYTES = 4 * 1024 * 1024;
-const MAX_CANDIDATES = 120;
 const SESSION_TTL = 12 * 60 * 60;
 const COOKIE_NAME = '__Host-vpngate_session';
 const loginFailures = new Map();
@@ -109,21 +108,20 @@ async function readLimitedText(upstream, maxBytes = MAX_BYTES) {
 export async function refresh(env, fetcher = fetch) {
   const startedAt = new Date().toISOString();
   try {
-    const fetched = await Promise.allSettled(SOURCES.map(async source => {
-      const upstream = await fetcher(source.url, {
-        headers: { Accept: 'text/plain,application/octet-stream;q=0.9', 'User-Agent': 'Free-Subscription/2.0' },
-        redirect: 'manual', signal: AbortSignal.timeout(20000),
-      });
-      if (!upstream.ok) throw new Error(`HTTP ${upstream.status}`);
-      const parsed = parseFreeSubscription(await readLimitedText(upstream), { sourceId: source.id, sourceName: source.name, limit: 80 });
-      if (!parsed.nodes.length) throw new Error('No supported nodes');
-      return { ...parsed, source };
-    }));
+    // Bound discovery requests as well as response sizes; only fixed adapters
+    // can select fetch destinations. Leave room for KV operations in this run.
+    let requests = 0;
+    const boundedFetch = (...args) => {
+      if (++requests > 45) throw new Error('Source request budget exhausted');
+      return fetcher(...args);
+    };
+    const fetched = await Promise.allSettled(SOURCES.map(source => loadFreeSource(source, boundedFetch)));
     const successful = fetched.filter(r => r.status === 'fulfilled').map(r => r.value);
     const sources = fetched.map((r, i) => ({
       ...SOURCES[i], success: r.status === 'fulfilled',
       nodeCount: r.status === 'fulfilled' ? r.value.nodes.length : 0,
       sourceCount: r.status === 'fulfilled' ? r.value.sourceCount : 0,
+      ...(r.status === 'fulfilled' && r.value.articleUrl ? { articleUrl: r.value.articleUrl, feedCount: r.value.feedCount, fetchedFeedCount: r.value.fetchedFeedCount } : {}),
       ...(r.status === 'rejected' ? { error: /^HTTP \d+$/.test(r.reason?.message) ? r.reason.message : 'Source unavailable or invalid' } : {}),
     }));
     if (!successful.length) throw new Error('All free sources unavailable or invalid; previous snapshot retained');

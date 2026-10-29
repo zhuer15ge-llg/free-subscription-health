@@ -211,14 +211,31 @@ test('v2rayN gets the complete Mihomo config with matching download metadata', a
   assert.equal(await result.text(), JSON.parse(current).mihomo);
 });
 
-test('refresh fetches fixed feeds and creates immutable candidates without publishing unchecked nodes', async () => {
+test('refresh fetches fixed publishers and creates immutable candidates without publishing unchecked nodes', async () => {
   const env = environment({ snapshot: current });
   const called = [];
   const status = await refresh(env, async (url, options) => {
     called.push(url); assert.equal(options.redirect, 'manual');
+    const source = SOURCES.find(s => s.url === url);
+    const feeds = {
+      mibei:'https://aa.mibei77.com/202610/test.txt',
+      hiddifynext:'https://hiddify-next-node.github.io/uploads/2026/10/test.txt',
+      freeclashnode:'https://node.freeclashnode.com/uploads/2026/10/test.txt',
+      endgfw:'https://raw.githubusercontent.com/hello-world-1989/cn-news/main/end-gfw-free',
+      v2raydog:'https://nodesub.v2raydog.com/2026/10/v2raydog-20261029.txt',
+      cfmem:'https://nodebuf.com/node-sub/'+ 'a'.repeat(64) +'/v2ray',
+      freev2:'https://test.503403.xyz/',
+    };
+    if(source?.kind) {
+      const articles = {mibei:'/784.html',hiddifynext:'/free-nodes/2026-10-29-node.htm',freeclashnode:'/free-node/2026-10-29-node.htm',v2raydog:'/freenode/2026-10-29/',cfmem:'/2026/10/20261029-node.html'};
+      return new Response(articles[source.kind] ? `<a href='${articles[source.kind]}'>latest</a>` : `<button data-clipboard-text='${feeds[source.kind]}'>copy</button><code>${feeds[source.kind]}</code>`);
+    }
+    const kind=url.includes('/784.html')?'mibei':url.includes('/free-nodes/')?'hiddifynext':url.includes('/free-node/')?'freeclashnode':url.includes('/freenode/')?'v2raydog':url.endsWith('20261029-node.html')?'cfmem':null;
+    if(kind) return new Response(`<code>${feeds[kind]}</code>`);
     return new Response(btoa(publicNode));
   });
-  assert.deepEqual(called.sort(), SOURCES.map(s => s.url).sort());
+  assert.ok(SOURCES.every(s=>called.includes(s.url)));
+  assert.ok(called.length<=45);
   assert.equal(status.candidateCount, 1); // Identical endpoints shared by sources deduplicate.
   assert.equal(status.trafficRelay, false);
   assert.equal(status.sourceStatus.filter(s => s.success).length, SOURCES.length);
