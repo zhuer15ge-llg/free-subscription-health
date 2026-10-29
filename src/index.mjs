@@ -1,5 +1,6 @@
 import { SOURCES, mergeFreeSources, MAX_CANDIDATES } from './free-sources.mjs';
 import { loadFreeSource, parseSourceSupplements } from './source-loader.mjs';
+import { renderUriSubscription } from './free-converter.mjs';
 import { renderLoginPage, renderDashboard } from './ui.mjs';
 import { HealthReportError, candidateSummary, makeHealthySnapshot, healthView, publicStatus } from './health-snapshot.mjs';
 
@@ -117,9 +118,28 @@ export async function refresh(env, fetcher = fetch, supplementInput = []) {
       return fetcher(...args);
     };
     const fetched = await Promise.allSettled(SOURCES.map(async source => {
-      try { return await loadFreeSource(source, boundedFetch); }
+      const cacheKey = source.id === 'freev2' ? 'daily-source:freev2' : null;
+      const retain = async result => {
+        if (cacheKey) await env.STORE.put(cacheKey, JSON.stringify({
+          at: new Date().toISOString(), sourceId: source.id,
+          subscription: renderUriSubscription(result.nodes), articleUrl: result.articleUrl,
+          feedCount: result.feedCount, fetchedFeedCount: result.fetchedFeedCount,
+        }), { expirationTtl: 2 * 60 * 60 }).catch(() => {});
+        return result;
+      };
+      try { return await retain(await loadFreeSource(source, boundedFetch)); }
       catch (error) {
-        if (supplements.has(source.id)) return supplements.get(source.id);
+        if (supplements.has(source.id)) return retain(supplements.get(source.id));
+        if (cacheKey) {
+          try {
+            const cached = await env.STORE.get(cacheKey, 'json');
+            if (cached && Date.parse(cached.at) <= Date.now() && Date.now() - Date.parse(cached.at) < 2 * 60 * 60 * 1000) {
+              const {at,...input}=cached;
+              const result=parseSourceSupplements([input]).get(source.id);
+              return { ...result, fetchedBy:'recent-source-cache', sourceFetchedAt:at };
+            }
+          } catch { /* Invalid/expired cached material cannot bypass parsing. */ }
+        }
         throw error;
       }
     }));
@@ -130,6 +150,7 @@ export async function refresh(env, fetcher = fetch, supplementInput = []) {
       sourceCount: r.status === 'fulfilled' ? r.value.sourceCount : 0,
       ...(r.status === 'fulfilled' && r.value.articleUrl ? { articleUrl: r.value.articleUrl, feedCount: r.value.feedCount, fetchedFeedCount: r.value.fetchedFeedCount } : {}),
       ...(r.status === 'fulfilled' && r.value.fetchedBy ? { fetchedBy: r.value.fetchedBy } : {}),
+      ...(r.status === 'fulfilled' && r.value.sourceFetchedAt ? { sourceFetchedAt: r.value.sourceFetchedAt } : {}),
       ...(r.status === 'rejected' ? { error: /^HTTP \d+$/.test(r.reason?.message) ? r.reason.message : 'Source unavailable or invalid' } : {}),
     }));
     if (!successful.length) throw new Error('All free sources unavailable or invalid; previous snapshot retained');

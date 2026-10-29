@@ -266,6 +266,20 @@ test('failed daily fetches can use authenticated checker URI supplements without
   assert.equal(JSON.parse(env.values.get('candidates')).nodes.find(n=>n.sourceId==='freev2').protocol,'trojan');
 });
 
+test('FreeV2 transient failures reuse recent source data without extending its lifetime or bypassing checks', async () => {
+  const at=new Date(Date.now()-60000).toISOString();
+  const cache={at,sourceId:'freev2',subscription:secondNode,articleUrl:'https://b.freev2.net/',feedCount:1,fetchedFeedCount:1};
+  const env=environment({snapshot:current,'daily-source:freev2':JSON.stringify(cache)});
+  const fetcher=async url=>url===SOURCES[0].url?new Response(publicNode):new Response('',{status:503});
+  const result=await refresh(env,fetcher);
+  assert.equal(result.sourceStatus.find(s=>s.id==='freev2').fetchedBy,'recent-source-cache');
+  assert.equal(env.values.get('daily-source:freev2'),JSON.stringify(cache));
+  assert.equal(env.values.get('snapshot'),current);
+  cache.at=new Date(Date.now()-7200001).toISOString();env.values.set('daily-source:freev2',JSON.stringify(cache));
+  const expired=await refresh(env,fetcher);
+  assert.equal(expired.sourceStatus.find(s=>s.id==='freev2').success,false);
+});
+
 test('supplemental source ingestion is admin-only and rejects proxy objects and unknown request fields', async () => {
   const env=environment({snapshot:current});
   for (const input of [{supplements:[{sourceId:'freev2',proxy:{type:'direct'}}]},{url:'https://evil.example/'}]) {

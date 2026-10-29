@@ -11,6 +11,7 @@ Cloudflare Workers 负责收集、转换和提供订阅。GitHub Actions 独立�
    日更源合并后最多取 500 个，避免一个大型合集占满检测资源。
    Actions 同时从自身网络读取七个日更源，作为 Cloudflare 出口读取失败时的备用。
    备用只提交原生 URI，Worker 再解析、去重，仍须逐节点通过 HTTPS 检测后才发布。
+   FreeV2 短暂故障时可复用最近两小时读取成功的源文件；缓存不续期，节点仍逐轮重测。
 2. GitHub Actions 计划在每小时第 17、47 分钟运行，也可手动触发。
 3. 使用固定版本且校验 SHA-256 的 Mihomo，每个节点独立绑定临时 loopback 监听器。
    不开 TUN，不修改系统代理，没有 DIRECT 回退。
