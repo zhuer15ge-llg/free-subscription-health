@@ -2,7 +2,7 @@ import { SOURCES, mergeFreeSources, MAX_CANDIDATES } from './free-sources.mjs';
 import { loadFreeSource, parseSourceSupplements } from './source-loader.mjs';
 import { renderUriSubscription } from './free-converter.mjs';
 import { renderLoginPage, renderDashboard } from './ui.mjs';
-import { HealthReportError, candidateSummary, makeHealthySnapshot, healthView, publicStatus } from './health-snapshot.mjs';
+import { HealthReportError, candidateSummary, makeHealthySnapshot, healthView, publicStatus, applySnapshotBlockPolicy } from './health-snapshot.mjs';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 const SESSION_TTL = 12 * 60 * 60;
@@ -14,7 +14,7 @@ let cachedSnapshot = null;
 async function snapshot(store) {
   const raw = await store.get('snapshot');
   if (raw === null) return null;
-  if (raw !== cachedRaw) { cachedSnapshot = JSON.parse(raw); cachedRaw = raw; }
+  if (raw !== cachedRaw) { cachedSnapshot = applySnapshotBlockPolicy(JSON.parse(raw)); cachedRaw = raw; }
   return cachedSnapshot;
 }
 

@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker, { refresh } from '../src/index.mjs';
 import { SOURCES, mergeFreeSources } from '../src/free-sources.mjs';
-import { buildFreeMihomo, GROUP_NAME, AUTO_NAME, TEST_URL } from '../src/free-config.mjs';
-import { parseFreeSubscription } from '../src/free-converter.mjs';
+import { buildFreeMihomo, renderFreeMihomo, GROUP_NAME, AUTO_NAME, TEST_URL } from '../src/free-config.mjs';
+import { parseFreeSubscription, renderFreeKaring, renderUriSubscription } from '../src/free-converter.mjs';
+import { BLOCKED_ENDPOINTS, isBlockedNode } from '../src/block-policy.mjs';
 import { makeHealthySnapshot, CHECK_TARGETS, HEALTH_TTL_MS } from '../src/health-snapshot.mjs';
 
 function environment(initial = {}, failKey = null) {
@@ -28,6 +29,8 @@ function environment(initial = {}, failKey = null) {
 }
 const publicNode = 'vless://12345678-1234-4234-8234-123456789abc@node.example.com:443?security=tls&type=ws&host=node.example.com&sni=node.example.com&path=%2Ftest#JP';
 const secondNode = 'trojan://test-public-password@other.example.com:443?sni=other.example.com#US';
+const deniedEndpoint=BLOCKED_ENDPOINTS.find(n=>n.protocol==='vless'&&!n.server.includes(':'));
+const deniedNode=parseFreeSubscription(`vless://12345678-1234-4234-8234-123456789abc@${deniedEndpoint.server}:${deniedEndpoint.port}?security=tls&sni=fixture.example.com#JP`,{sourceId:'fixture',sourceName:'Fixture'}).nodes[0];
 const seedTime = Date.now();
 const seedCandidate = {
   generationId: 'fixture-generation-0001', createdAt: new Date(seedTime - 120000).toISOString(),
@@ -342,6 +345,54 @@ test('a complete health report publishes only passed candidates in every format'
   const status=await (await worker.fetch(subRequest('/api/status'),env)).json();
   assert.equal(status.available,true);assert.equal(status.clientConnectivityTested,true);assert.equal(status.nodeCount,1);
   assert.equal(status.candidateStatus.candidateCount,2);
+});
+
+test('an in-flight old generation cannot republish blocked endpoints even when its checks pass', async () => {
+  const env=environment({snapshot:current});
+  const candidate={...seedCandidate,generationId:'blocked-old-generation-01',nodes:[...seedCandidate.nodes,deniedNode]};
+  env.values.set(`candidate:${candidate.generationId}`,JSON.stringify(candidate));
+  const result=await postReport(env,reportFor(candidate));
+  assert.equal(result.status,200);
+  const snap=JSON.parse(env.values.get('snapshot'));
+  assert.equal(snap.health.checkedCount,2);assert.equal(snap.health.passedCount,1);
+  assert.equal(snap.health.failedCount,1);assert.equal(snap.health.policyBlockedCount,1);
+  assert.ok(!parseFreeSubscription(snap.uris).nodes.some(isBlockedNode));
+});
+
+function legacyBlockedSnapshot(onlyBlocked=false) {
+  const snap=JSON.parse(current), nodes=onlyBlocked?[deniedNode]:[...seedCandidate.nodes,deniedNode];
+  snap.health={...snap.health,checkedCount:nodes.length,passedCount:nodes.length,failedCount:0};
+  snap.status={...snap.status,health:snap.health,nodeCount:nodes.length,karingNodeCount:nodes.length};
+  snap.uris=renderUriSubscription(nodes);snap.karing=renderFreeKaring(nodes);
+  snap.mihomo=renderFreeMihomo(nodes);snap.provider=renderFreeMihomo(nodes,{providerOnly:true});
+  snap.nodes={updatedAt:snap.health.checkedAt,nodes:nodes.map(({id,name,country,countryLong,ip,protocol,sourceId})=>({id,name,country,countryLong,ip,protocol,sourceId}))};
+  return snap;
+}
+
+test('new policy removes cached endpoints from every format without resetting real check timestamps', async () => {
+  const legacy=legacyBlockedSnapshot(), env=environment({snapshot:JSON.stringify(legacy)});
+  const status=await (await worker.fetch(subRequest('/api/status'),env)).json();
+  assert.equal(status.nodeCount,1);assert.equal(status.health.policyBlockedCount,1);
+  assert.equal(status.health.checkedAt,legacy.health.checkedAt);assert.equal(status.health.expiresAt,legacy.health.expiresAt);
+  const native=await (await worker.fetch(subRequest('/sub/v2rayn.txt'),env)).text();
+  assert.equal(parseFreeSubscription(native).nodes.length,1);assert.ok(!parseFreeSubscription(native).nodes.some(isBlockedNode));
+  const karing=await (await worker.fetch(subRequest('/sub/karing.json'),env)).json();
+  assert.equal(karing.outbounds.length,1);assert.ok(!karing.outbounds.some(outbound=>isBlockedNode({outbound})));
+  for(const route of ['/sub/mihomo.yaml','/sub/provider.yaml','/sub/v2rayn.yaml']) {
+    const text=await (await worker.fetch(subRequest(route),env)).text();assert.ok(!text.includes(deniedNode.name));
+  }
+  const metadata=await (await worker.fetch(subRequest('/api/nodes'),env)).json();assert.equal(metadata.nodes.length,1);
+  assert.equal(env.values.get('snapshot'),JSON.stringify(legacy),'read filtering must not overwrite a concurrent checked snapshot');
+});
+
+test('a cache consisting only of blocked nodes becomes empty and expired checks remain expired', async () => {
+  const legacy=legacyBlockedSnapshot(true), env=environment({snapshot:JSON.stringify(legacy)});
+  for(const route of subscriptionRoutes) assert.equal((await worker.fetch(subRequest(route),env)).status,503);
+  const checked=Date.now()-HEALTH_TTL_MS-1000;
+  legacy.health={...legacy.health,checkedAt:new Date(checked).toISOString(),expiresAt:new Date(checked+HEALTH_TTL_MS).toISOString()};legacy.status.health=legacy.health;
+  env.values.set('snapshot',JSON.stringify(legacy));
+  const status=await (await worker.fetch(subRequest('/api/status'),env)).json();
+  assert.equal(status.health.state,'expired');assert.equal(status.health.checkedAt,legacy.health.checkedAt);
 });
 
 test('zero passing nodes replace the old snapshot and all subscription routes fail closed', async () => {

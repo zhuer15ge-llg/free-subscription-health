@@ -1,5 +1,6 @@
 // Fixed public publishers; daily pages are resolved only by their own adapter.
 // No user-supplied fetch URLs or traffic forwarding endpoints are supported.
+import { isBlockedNode } from './block-policy.mjs';
 export const MAX_CANDIDATES = 1000;
 export const SOURCES = Object.freeze([
   { id: 'nodesradar', name: 'Nodes Radar', homepage: 'https://github.com/nodesradar/nodesradar-en', url: 'https://radarhub.top/v2ray.txt' },
@@ -25,6 +26,7 @@ export function mergeFreeSources(results, limit = MAX_CANDIDATES) {
     for (const result of results) {
       const node = result.nodes[i];
       if (!node || seen.has(node.id)) continue;
+      if (isBlockedNode(node)) continue;
       // These nodes reset TLS connections in local client checks; keep the
       // pause scoped to this source/protocol pair until it is revalidated.
       if (node.sourceId === 'igareck' && node.protocol === 'trojan') continue;
