@@ -6,7 +6,7 @@ import { buildFreeMihomo, renderFreeMihomo, GROUP_NAME, AUTO_NAME, TEST_URL } fr
 import { parseFreeSubscription, renderFreeKaring, renderUriSubscription } from '../src/free-converter.mjs';
 import { BLOCKED_ENDPOINTS, isBlockedNode } from '../src/block-policy.mjs';
 import { renameSubscriptionNodes } from '../src/node-aliases.mjs';
-import { makeHealthySnapshot, CHECK_TARGETS, HEALTH_TTL_MS } from '../src/health-snapshot.mjs';
+import { makeHealthySnapshot, CHECK_TARGETS, HEALTH_TTL_MS,MAX_SNAPSHOT_AGE_MS } from '../src/health-snapshot.mjs';
 
 function environment(initial = {}, failKey = null) {
   const values = new Map(Object.entries(initial));
@@ -404,7 +404,7 @@ test('new policy removes cached endpoints from every format without resetting re
 test('a cache consisting only of blocked nodes becomes empty and expired checks remain expired', async () => {
   const legacy=legacyBlockedSnapshot(true), env=environment({snapshot:JSON.stringify(legacy)});
   for(const route of subscriptionRoutes) assert.equal((await worker.fetch(subRequest(route),env)).status,503);
-  const checked=Date.now()-HEALTH_TTL_MS-1000;
+  const checked=Date.now()-MAX_SNAPSHOT_AGE_MS-1000;
   legacy.health={...legacy.health,checkedAt:new Date(checked).toISOString(),expiresAt:new Date(checked+HEALTH_TTL_MS).toISOString()};legacy.status.health=legacy.health;
   env.values.set('snapshot',JSON.stringify(legacy));
   const status=await (await worker.fetch(subRequest('/api/status'),env)).json();
@@ -439,8 +439,8 @@ test('old untested snapshots and empty storage cannot expose credentials through
   }
 });
 
-test('health expiry is enforced at read time while status remains available', async () => {
-  const old=JSON.parse(current);const checked=Date.now()-HEALTH_TTL_MS-1000;
+test('hard health expiry is enforced at read time while status remains available', async () => {
+  const old=JSON.parse(current);const checked=Date.now()-MAX_SNAPSHOT_AGE_MS-1000;
   old.health.checkedAt=new Date(checked).toISOString();old.health.expiresAt=new Date(checked+HEALTH_TTL_MS).toISOString();old.status.health=old.health;
   const env=environment({snapshot:JSON.stringify(old)});
   for(const route of subscriptionRoutes){
@@ -448,6 +448,25 @@ test('health expiry is enforced at read time while status remains available', as
   }
   const response=await worker.fetch(subRequest('/api/status'),env);assert.equal(response.status,200);
   const status=await response.json();assert.equal(status.nodeCount,0);assert.equal(status.karingNodeCount,0);assert.equal(status.health.stale,true);assert.equal(status.available,false);
+});
+
+test('delayed checks serve only the last checked permitted nodes with explicit stale status and unchanged timestamps', async () => {
+  const old=legacyBlockedSnapshot();const checked=Date.now()-HEALTH_TTL_MS-1000;
+  old.health.checkedAt=new Date(checked).toISOString();old.health.expiresAt=new Date(checked+HEALTH_TTL_MS).toISOString();old.status.health=old.health;
+  const env=environment({snapshot:JSON.stringify(old)});
+  for(const route of subscriptionRoutes){
+    const r=await worker.fetch(subRequest(route),env);assert.equal(r.status,200,route);
+    assert.equal(r.headers.get('X-Subscription-Health'),'stale');assert.equal(r.headers.get('X-Subscription-Checked-At'),old.health.checkedAt);
+  }
+  const status=await (await worker.fetch(subRequest('/api/status'),env)).json();
+  assert.equal(status.nodeCount,1);assert.equal(status.available,true);assert.equal(status.health.state,'stale');
+  assert.equal(status.health.stale,true);assert.equal(status.health.fresh,false);
+  assert.equal(status.health.checkedAt,old.health.checkedAt);assert.equal(status.health.expiresAt,old.health.expiresAt);
+  assert.equal(Date.parse(status.health.staleUntil),checked+MAX_SNAPSHOT_AGE_MS);
+  const native=await (await worker.fetch(subRequest('/sub/v2rayn.txt'),env)).text();
+  const nodes=parseFreeSubscription(native).nodes;assert.equal(nodes.length,1);assert.ok(!nodes.some(isBlockedNode));
+  assert.ok(JSON.parse(await (await worker.fetch(subRequest('/api/nodes'),env)).text()).nodes[0].name.includes('阿高节点'));
+  assert.equal(env.values.get('snapshot'),JSON.stringify(old));
 });
 
 test('partial, duplicate, forged, stale and unsupported check reports cannot replace health', async () => {

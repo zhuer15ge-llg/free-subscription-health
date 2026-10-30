@@ -28,6 +28,13 @@ function response(body, status = 200, type = 'application/json; charset=utf-8', 
   return new Response(body, { status, headers: { ...commonHeaders, 'Content-Type': type, ...extra } });
 }
 function json(body, status = 200) { return response(JSON.stringify(body), status); }
+function healthHeaders(health) {
+  return {
+    'X-Subscription-Health':health.state,
+    ...(health.checkedAt ? { 'X-Subscription-Checked-At':health.checkedAt } : {}),
+    ...(health.staleUntil ? { 'X-Subscription-Stale-Until':health.staleUntil } : {}),
+  };
+}
 
 // Compare fixed-length digests rather than leaking the first differing character.
 async function equalSecret(provided, secret) {
@@ -284,13 +291,13 @@ export default {
     if (url.pathname === '/api/status') {
       const [candidate, lastAttempt] = await Promise.all([env.STORE.get('candidates', 'json'), env.STORE.get('last-attempt', 'json')]);
       const status = { ...publicStatus(current, candidate), lastAttempt };
-      return request.method === 'HEAD' ? response(null, 200) : json(status);
+      return response(request.method === 'HEAD' ? null : JSON.stringify(status),200,'application/json; charset=utf-8',healthHeaders(status.health));
     }
     const health = healthView(current);
     if (!health.available) {
       const codes = { pending: 'HealthCheckRequired', expired: 'HealthCheckExpired', empty: 'NoHealthyNodes' };
       const messages = { pending: 'Awaiting a complete connectivity check', expired: 'Connectivity check expired; awaiting a new report', empty: 'No candidate passed the latest connectivity check' };
-      return response(request.method === 'HEAD' ? null : JSON.stringify({ error: messages[health.state], code: codes[health.state], health, nodeCount: 0 }), 503, 'application/json; charset=utf-8', { 'Retry-After': '300' });
+      return response(request.method === 'HEAD' ? null : JSON.stringify({ error: messages[health.state], code: codes[health.state], health, nodeCount: 0 }), 503, 'application/json; charset=utf-8', { 'Retry-After': '300',...healthHeaders(health) });
     }
     if (ovpnMatch) {
       const profile = current.profiles?.find(node => node.id === ovpnMatch[1]);
@@ -302,11 +309,11 @@ export default {
     const [key, type, filename] = routes[url.pathname];
     if (['karing', 'uris'].includes(key) && !current[key]) return json({ error: 'Subscription format is not ready; please retry after the next successful refresh' }, 503);
     const body = typeof current[key] === 'string' ? current[key] : JSON.stringify(current[key]);
-    return response(request.method === 'HEAD' ? null : body, 200, type, filename ? {
+    return response(request.method === 'HEAD' ? null : body, 200, type, { ...healthHeaders(health),...(filename ? {
       'Content-Disposition': `attachment; filename="${filename}"`,
       'profile-update-interval': '1',
       'profile-title': key === 'uris' ? 'Free Nodes v2rayN' : key === 'karing' ? 'Free Nodes Karing' : 'Free Nodes Mihomo',
-    } : {});
+    } : {}) });
   },
   async scheduled(event, env, ctx) {
     ctx.waitUntil(refresh(env).catch(error => console.error('Free subscription refresh failed:', error.message)));

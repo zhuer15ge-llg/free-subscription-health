@@ -5,6 +5,7 @@ import { isBlockedNode } from './block-policy.mjs';
 import { aliasesAreCurrent, renameSubscriptionNodes } from './node-aliases.mjs';
 
 export const HEALTH_TTL_MS = 2 * 60 * 60 * 1000;
+export const MAX_SNAPSHOT_AGE_MS = 24 * 60 * 60 * 1000;
 export const MAX_REPORT_AGE_MS = 30 * 60 * 1000;
 export const CHECK_TARGETS = Object.freeze(['https://1.1.1.1/cdn-cgi/trace', 'https://www.google.com/generate_204']);
 const CHECKERS = new Set(['github-actions', 'local-windows']);
@@ -144,7 +145,12 @@ export function healthView(current, now = Date.now()) {
     && current?.nodes?.nodes?.length === health.passedCount;
   if (!valid) return { enabled: true, checkedAt: null, expiresAt: null, checkedCount: 0, passedCount: 0, failedCount: 0, checker: null, targets: [...CHECK_TARGETS], available: false, stale: false, state: 'pending' };
   const stale = expires <= now;
-  return { ...health, available: !stale && health.passedCount > 0, stale, state: stale ? 'expired' : health.passedCount ? 'healthy' : 'empty' };
+  const staleUntil = checked + MAX_SNAPSHOT_AGE_MS;
+  const expired = staleUntil <= now;
+  const available = !expired && health.passedCount > 0;
+  return { ...health, available, fresh:available && !stale, stale,
+    staleUntil:new Date(staleUntil).toISOString(),
+    state:expired ? 'expired' : health.passedCount ? stale ? 'stale' : 'healthy' : 'empty' };
 }
 
 export function publicStatus(current, candidate, now = Date.now()) {
